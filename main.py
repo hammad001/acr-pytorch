@@ -7,7 +7,7 @@ import torchvision
 import torch.nn.parallel
 import torch.backends.cudnn as cudnn
 import torch.optim
-from torch.nn.utils import clip_grad_norm
+from torch.nn.utils import clip_grad_norm_
 
 from dataset import TSNDataSet
 from models import TSN
@@ -179,7 +179,7 @@ def train(train_loader, model, criterion, optimizer, epoch):
         loss.backward()
 
         if args.clip_gradient is not None:
-            total_norm = clip_grad_norm(model.parameters(), args.clip_gradient)
+            total_norm = clip_grad_norm_(model.parameters(), args.clip_gradient)
             if total_norm > args.clip_gradient:
                 print("clipping gradient: {} with coef {}".format(total_norm, args.clip_gradient / total_norm))
 
@@ -212,8 +212,8 @@ def validate(val_loader, model, criterion, iter, logger=None):
     end = time.time()
     for i, (input, target) in enumerate(val_loader):
         target = target.cuda(async=True)
-        input_var = torch.autograd.Variable(input, volatile=True)
-        target_var = torch.autograd.Variable(target, volatile=True)
+        input_var = torch.no_grad(input)
+        target_var = torch.no_grad(target)
 
         # compute output
         output = model(input_var)
