@@ -146,7 +146,7 @@ class GroupMultiScaleCrop(object):
         crop_w, crop_h, offset_w, offset_h = self._sample_crop_size(im_size)
         crop_img_group = [img.crop((offset_w, offset_h, offset_w + crop_w, offset_h + crop_h)) for img in img_group]
         ret_img_group = [img.resize((self.input_size[0], self.input_size[1]), self.interpolation)
-                         for img in crop_img_group]
+                         for img in img_group]
         return ret_img_group
 
     def _sample_crop_size(self, im_size):
@@ -283,6 +283,21 @@ class ToTorchFormatTensor(object):
             # yikes, this transpose takes 80% of the loading time/CPU
             img = img.transpose(0, 1).transpose(0, 2).contiguous()
         return img.float().div(255) if self.div else img.float()
+
+
+class StackPose(object):
+
+    def __call__(self, img_group):
+        return np.concatenate([np.array(x)[:, :, np.newaxis] for x in img_group], axis=2)
+
+
+class ToTorchFormatTensorPose(object):
+    """ Converts a PIL.Image (RGB) or numpy.ndarray (H x W x C) in the range [0, 255]
+    to a torch.FloatTensor of shape (C x H x W) in the range [0.0, 1.0] """
+    def __call__(self, pic):
+        img = torch.from_numpy(pic).permute(2, 0, 1).contiguous()
+        
+        return img.float()
 
 
 class IdentityTransform(object):

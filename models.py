@@ -58,6 +58,16 @@ TSN Configurations:
         if partial_bn:
             self.partialBN(True)
 
+        self.pose_layer = nn.Sequential(
+                             nn.Linear(self.input_size * self.input_size, 2048),
+                             nn.ReLU(),
+                             nn.Linear(2048, feature_dim),
+                             nn.ReLU()
+                             )
+
+        self.rgb_pose_combine_layer = nn.Sequential(
+                                         nn.Linear(2 * feature_dim, feature_dim))
+
     def _prepare_tsn(self, num_class):
         feature_dim = getattr(self.base_model, self.base_model.last_layer_name).in_features
         if self.dropout == 0:
@@ -187,24 +197,31 @@ TSN Configurations:
              'name': "BN scale/shift"},
         ]
 
-    def forward(self, input):
+    def forward(self, input, pose):
         sample_len = (3 if self.modality == "RGB" else 2) * self.new_length
+        pose_len = 1
 
         if self.modality == 'RGBDiff':
             sample_len = 3 * self.new_length
             input = self._get_diff(input)
 
         base_out = self.base_model(input.view((-1, sample_len) + input.size()[-2:]))
+        base_out = F.relu(base_out)
+
+        pose_out = self.pose_layer(pose.view((-1, pose_len) + pose.size()[-2:]))
+
+        base_pose_out = torch.cat((base_out, pose_out), 1)
+        base_pose_out = self.rgb_pose_combine_layer(base_pose_out)
 
         if self.dropout > 0:
-            base_out = self.new_fc(base_out)
+            base_pose_out = self.new_fc(base_pose_out)
 
         if not self.before_softmax:
-            base_out = self.softmax(base_out)
+            base_pose_out = self.softmax(base_pose_out)
         if self.reshape:
-            base_out = base_out.view((-1, self.num_segments) + base_out.size()[1:])
+            base_pose_out = base_pose_out.view((-1, self.num_segments) + base_pose_out.size()[1:])
 
-        output = self.consensus(base_out)
+        output = self.consensus(base_pose_out)
         return output.squeeze(1)
 
     def _get_diff(self, input, keep_rgb=False):

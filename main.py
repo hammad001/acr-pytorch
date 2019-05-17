@@ -30,6 +30,9 @@ def main():
     else:
         raise ValueError('Unknown dataset '+args.dataset)
 
+    if not os.path.exists(args.result_path):
+        os.makedirs(args.result_path)
+
     model = TSN(num_class, args.num_segments, args.modality,
                 base_model=args.arch,
                 consensus_type=args.consensus_type, dropout=args.dropout, partial_bn=not args.no_partialbn)
@@ -69,21 +72,31 @@ def main():
         data_length = 5
 
     train_loader = torch.utils.data.DataLoader(
-        TSNDataSet("", args.train_list, num_segments=args.num_segments,
+        TSNDataSet("", args.train_list, args.maskrcnn_config,
+                   num_segments=args.num_segments,
                    new_length=data_length,
                    modality=args.modality,
                    image_tmpl="img_{:05d}.jpg" if args.modality in ["RGB", "RGBDiff"] else args.flow_prefix+"{}_{:05d}.jpg",
                    transform=torchvision.transforms.Compose([
-                       train_augmentation,
+                       GroupScale(int(scale_size)),
+                       GroupCenterCrop(crop_size),
                        Stack(roll=args.arch == 'BNInception'),
                        ToTorchFormatTensor(div=args.arch != 'BNInception'),
                        normalize,
-                   ])),
+                   ]),
+                   transform_pose=torchvision.transforms.Compose([
+                       GroupScale(int(scale_size)),
+                       GroupCenterCrop(crop_size),
+                       StackPose(),
+                       ToTorchFormatTensorPose(),
+                   ])
+                   ),
         batch_size=args.batch_size, shuffle=True,
         num_workers=args.workers, pin_memory=True)
 
     val_loader = torch.utils.data.DataLoader(
-        TSNDataSet("", args.val_list, num_segments=args.num_segments,
+        TSNDataSet("", args.val_list, args.maskrcnn_config,
+                   num_segments=args.num_segments,
                    new_length=data_length,
                    modality=args.modality,
                    image_tmpl="img_{:05d}.jpg" if args.modality in ["RGB", "RGBDiff"] else args.flow_prefix+"{}_{:05d}.jpg",
@@ -94,7 +107,14 @@ def main():
                        Stack(roll=args.arch == 'BNInception'),
                        ToTorchFormatTensor(div=args.arch != 'BNInception'),
                        normalize,
-                   ])),
+                   ]),
+                   transform_pose=torchvision.transforms.Compose([
+                       GroupScale(int(scale_size)),
+                       GroupCenterCrop(crop_size),
+                       StackPose(),
+                       ToTorchFormatTensorPose(),
+                   ])
+                   ),
         batch_size=args.batch_size, shuffle=False,
         num_workers=args.workers, pin_memory=True)
 
@@ -154,16 +174,17 @@ def train(train_loader, model, criterion, optimizer, epoch):
     model.train()
 
     end = time.time()
-    for i, (input, target) in enumerate(train_loader):
+    for i, (input, pose, target) in enumerate(train_loader):
         # measure data loading time
         data_time.update(time.time() - end)
 
         target = target.cuda(async=True)
         input_var = torch.autograd.Variable(input)
+        pose = torch.autograd.Variable(pose)
         target_var = torch.autograd.Variable(target)
 
         # compute output
-        output = model(input_var)
+        output = model(input_var, pose)
         loss = criterion(output, target_var)
 
         # measure accuracy and record loss
@@ -212,13 +233,14 @@ def validate(val_loader, model, criterion, iter, logger=None):
     end = time.time()
 
     with torch.no_grad():
-        for i, (input, target) in enumerate(val_loader):
+        for i, (input, pose, target) in enumerate(val_loader):
             target = target.cuda(async=True)
             input_var = input
+            pose_var = pose
             target_var = target
     
             # compute output
-            output = model(input_var)
+            output = model(input_var, pose_var)
             loss = criterion(output, target_var)
     
             # measure accuracy and record loss
@@ -249,10 +271,12 @@ def validate(val_loader, model, criterion, iter, logger=None):
 
 def save_checkpoint(state, is_best, filename='checkpoint.pth.tar'):
     filename = '_'.join((args.snapshot_pref, args.modality.lower(), filename))
-    torch.save(state, filename)
+    file_path = os.path.join(args.result_path, filename)
+    torch.save(state, file_path)
     if is_best:
         best_name = '_'.join((args.snapshot_pref, args.modality.lower(), 'model_best.pth.tar'))
-        shutil.copyfile(filename, best_name)
+        best_path = os.path.join(args.result_path, best_name)
+        shutil.copyfile(file_path, best_path)
 
 
 class AverageMeter(object):
