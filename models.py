@@ -3,6 +3,7 @@ from torch import nn
 from ops.basic_ops import ConsensusModule, Identity
 from transforms import *
 from torch.nn.init import normal_, constant_
+import torch.nn.functional as F
 
 class TSN(nn.Module):
     def __init__(self, num_class, num_segments, modality,
@@ -208,7 +209,11 @@ TSN Configurations:
         base_out = self.base_model(input.view((-1, sample_len) + input.size()[-2:]))
         base_out = F.relu(base_out)
 
-        pose_out = self.pose_layer(pose.view((-1, pose_len) + pose.size()[-2:]))
+        # Reshaping for 3 segments to forward pass model individually 
+        pose = pose.view((-1, pose_len) + pose.size()[-2:])
+        # Reshaping for Linear Layer
+        pose = pose.view((pose.size(0),-1))
+        pose_out = self.pose_layer(pose)
 
         base_pose_out = torch.cat((base_out, pose_out), 1)
         base_pose_out = self.rgb_pose_combine_layer(base_pose_out)

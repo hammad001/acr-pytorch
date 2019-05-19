@@ -60,7 +60,7 @@ class TSNDataSet(data.Dataset):
             confidence_threshold=0.7,
         )
 
-        self.rad = 3
+        self.rad = 5
         self.A = 1
         self.gaussian_sq, self.mask_gauss = self._get_gaussian_and_mask(2*self.rad, self.A)
 
