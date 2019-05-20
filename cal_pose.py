@@ -7,6 +7,7 @@ import numpy as np
 from numpy.random import randint
 import torch
 import cv2
+import argparse
 
 from maskrcnn_benchmark.config import cfg
 from predictor import COCODemo
@@ -14,6 +15,8 @@ from predictor import COCODemo
 
 class CalPose:
     def __init__(self, device, maskrcnn_config_path, rad=5, A=1):
+
+        torch.cuda.set_device(int(device.split(':')[1]))
 
         self.config_file = maskrcnn_config_path
 
@@ -103,3 +106,22 @@ class CalPose:
         image = Image.open(img_path).convert('RGB')
         pose = self._load_pose(image)
         cv2.imwrite(out_path, pose)
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description="extract pose")
+    parser.add_argument("img_path")
+    parser.add_argument("out_path")
+    parser.add_argument("--device", type=str, default='cuda')
+    parser.add_argument("--mrcnn_cfg", type=str, default='/workspace/maskrcnn-benchmark/configs/caffe2/e2e_keypoint_rcnn_R_50_FPN_1x_caffe2.yaml', 
+                                                      help='path to mask rcnn keypoint prediction config')
+    args = parser.parse_args()
+
+    img_path = args.img_path
+    out_path = args.out_path
+    device = args.device
+    mrcnn_cfg = args.mrcnn_cfg
+
+    calPose = CalPose(device, mrcnn_cfg)
+    calPose.cal_and_write_pose(img_path, out_path)
+
+
