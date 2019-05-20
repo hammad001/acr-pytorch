@@ -3,7 +3,6 @@ import glob
 import sys
 from pipes import quote
 from multiprocessing import Process, Pool, current_process
-# from cal_pose import CalPose
 import math
 
 import argparse
@@ -19,21 +18,18 @@ def chunks(l, n):
 
     yield l[split_idx[-1]:]
 
-#def build_cal_pose_dict(num, mrcnn_cfg_path):
-#    for i in range(num):
-#        device = 'cuda:' + str(i)
-#        calPoseDict['predict_' + str(i)] = CalPose(device, mrcnn_cfg_path)
+def worker(im_list, dev_id):
+    device = 'cuda:' + str(i)
+    tmp_img_list_file = '/tmp/img_list_' + str(dev_id)
 
-#def worker(im_list, dev_id):
-#    device = 'cuda:' + str(i)
-#    calPose = CalPose(device, mrcnn_cfg_path)
-#    run_pose = build_run_cal_pose(calPose)
-#
-#    map(run_pose, zip(im_list, range(len(im_list))))
+    with open(tmp_img_list_file, 'w') as f:
+        for img_path in im_list:
+            f.write("{}\n".format(img_path))
 
-# def run_cal_pose(img_list, device):
-#     with open
-#     cmd = 
+    cmd = 'python cal_pose.py '+' {} {} --device={} --mrcnn_cfg={}'.format(tmp_img_list_file, out_path, device, mrcnn_cfg_path)
+    os.system(cmd)
+
+    print('Part: ', dev_id, 'sent for pose computation')
 
 def run_cal_pose(img_item, dev_id=0):
     img_path = img_item[0]
@@ -101,19 +97,16 @@ if __name__ == '__main__':
         img_list = nonintersection(img_list, com_img_list)
         print("resuming from video: ", img_list[0]) 
     
-#    calPoseDict = {}
-#    build_cal_pose_dict(NUM_GPU, mrcnn_cfg_path)
-#
-#    chunked_img_lists = list(chunks(img_list, NUM_GPU))
+    chunked_img_lists = list(chunks(img_list, NUM_GPU))
 
-#    threads = []
-#    for i in range(NUM_GPU):
-#        p = Process(target=worker, args=(chunked_img_lists[i], i,))
-#        p.start()
-#        threads.append(p)
-#
-#    for thread in threads:
-#        thread.join()
+    threads = []
+    for i in range(NUM_GPU):
+        p = Process(target=worker, args=(chunked_img_lists[i], i,))
+        p.start()
+        threads.append(p)
 
-    pool = Pool(NUM_GPU)
-    pool.map(run_cal_pose, zip(img_list, range(len(img_list))))
+    for thread in threads:
+        thread.join()
+
+#    pool = Pool(NUM_GPU)
+#    pool.map(run_cal_pose, zip(img_list, range(len(img_list))))

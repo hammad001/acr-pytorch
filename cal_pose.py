@@ -1,6 +1,7 @@
 import torch.utils.data as data
 
 from PIL import Image
+import sys
 import os
 import os.path
 import numpy as np
@@ -16,7 +17,8 @@ from predictor import COCODemo
 class CalPose:
     def __init__(self, device, maskrcnn_config_path, rad=5, A=1):
 
-        torch.cuda.set_device(int(device.split(':')[1]))
+        self.dev_id = int(device.split(':')[1])
+        torch.cuda.set_device(self.dev_id)
 
         self.config_file = maskrcnn_config_path
 
@@ -107,21 +109,54 @@ class CalPose:
         pose = self._load_pose(image)
         cv2.imwrite(out_path, pose)
 
+    def run_cal_pose(self, img_item):
+        img_path = img_item[0]
+        img_id = img_item[1]
+        
+        vid_name = img_path.split('/')[-2]
+        img_name = img_path.split('/')[-1]
+        out_full_path = os.path.join(self.out_path, vid_name)
+        try:
+            os.mkdir(out_full_path)
+        except OSError:
+            pass
+        pose_path = '{}/{}'.format(out_full_path, img_name)
+
+        self.cal_and_write_pose(img_path, pose_path)
+
+        print('{} {} done'.format(img_id, vid_name + '/' + img_name))
+        sys.stdout.flush()
+        return True
+
+    def run_all(self, img_list_path, out_dir_path):
+        self.out_path = out_dir_path
+
+        img_list = []
+        with open(img_list_path, 'r') as f:
+            for line in f:
+                img_list.append(line.strip('\n'))
+
+        print('Received {} images in part {}'.format(len(img_list), self.dev_id))
+
+        for i, img in enumerate(img_list):
+            self.run_cal_pose((img, i))
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="extract pose")
-    parser.add_argument("img_path")
-    parser.add_argument("out_path")
+    parser.add_argument("img_list_path")
+    parser.add_argument("out_dir_path")
     parser.add_argument("--device", type=str, default='cuda')
     parser.add_argument("--mrcnn_cfg", type=str, default='/workspace/maskrcnn-benchmark/configs/caffe2/e2e_keypoint_rcnn_R_50_FPN_1x_caffe2.yaml', 
                                                       help='path to mask rcnn keypoint prediction config')
     args = parser.parse_args()
 
-    img_path = args.img_path
-    out_path = args.out_path
+    img_list_path = args.img_list_path
+    out_dir_path = args.out_dir_path
     device = args.device
     mrcnn_cfg = args.mrcnn_cfg
 
     calPose = CalPose(device, mrcnn_cfg)
-    calPose.cal_and_write_pose(img_path, out_path)
+    calPose.run_all(img_list_path, out_dir_path)
 
 
