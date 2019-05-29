@@ -130,17 +130,21 @@ class TSNDataSet(data.Dataset):
 
         return kp_htmap
 
-    def _load_pose(self, image):
-        image = np.array(image)[:, :, [2, 1, 0]]
-        predictions = self.coco_demo.compute_prediction(image)
-        top_predictions = self.coco_demo.select_top_predictions(predictions)
-    
-        keypoints = predictions.get_field("keypoints")
-        kps = keypoints.keypoints
-        scores = keypoints.get_field("logits")
-        kps = torch.cat((kps[:, :, 0:2], scores[:, :, None]), dim=2).numpy()
+#    def _load_pose(self, image):
+#        image = np.array(image)[:, :, [2, 1, 0]]
+#        predictions = self.coco_demo.compute_prediction(image)
+#        top_predictions = self.coco_demo.select_top_predictions(predictions)
+#    
+#        keypoints = predictions.get_field("keypoints")
+#        kps = keypoints.keypoints
+#        scores = keypoints.get_field("logits")
+#        kps = torch.cat((kps[:, :, 0:2], scores[:, :, None]), dim=2).numpy()
+#
+#        return [Image.fromarray(self._plot_kps(kps, image))]
 
-        return [Image.fromarray(self._plot_kps(kps, image))]
+    def _load_pose(self, directory, idx):
+        return [Image.open(os.path.join(directory, self.image_tmpl.format(idx)))]
+
 
     def _load_image(self, directory, idx):
         if self.modality == 'RGB' or self.modality == 'RGBDiff':
@@ -205,7 +209,8 @@ class TSNDataSet(data.Dataset):
             p = int(seg_ind)
             for i in range(self.new_length):
                 seg_imgs = self._load_image(record.path, p)
-                seg_pose = self._load_pose(seg_imgs[0])
+                pose_path = record.path.replace('ucf_extract', 'ucf_pose')
+                seg_pose = self._load_pose(pose_path, p)
                 images.extend(seg_imgs)
                 poses.extend(seg_pose)
                 if p < record.num_frames:
