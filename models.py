@@ -60,14 +60,23 @@ TSN Configurations:
             self.partialBN(True)
 
         self.pose_layer = nn.Sequential(
-                             nn.Linear(self.input_size * self.input_size, 2048),
-                             nn.ReLU(),
-                             nn.Linear(2048, feature_dim),
-                             nn.ReLU()
-                             )
+                              nn.Conv2d(1,64,7,stride=4,padding=3),
+                              nn.BatchNorm2d(64),
+                              nn.ReLU(inplace=True),
+                              nn.MaxPool2d(3,stride=4,padding=1),
+                              nn.Conv2d(64,256,1),
+                              nn.Conv2d(256,512,3,stride=1,padding=1),
+                              nn.BatchNorm2d(512),
+                              nn.ReLU(inplace=True),
+                              nn.MaxPool2d(3,stride=2,padding=1),
+                              nn.Conv2d(512,1024,1),
+                              )
 
-        self.rgb_pose_combine_layer = nn.Sequential(
-                                         nn.Linear(2 * feature_dim, feature_dim))
+        # self.rgb_pose_combine_layer = nn.Sequential(
+        #                                 nn.Linear(2 * feature_dim, feature_dim))
+
+        self.global_pool = nn.AvgPool2d(7)
+
 
     def _prepare_tsn(self, num_class):
         feature_dim = getattr(self.base_model, self.base_model.last_layer_name).in_features
@@ -211,12 +220,19 @@ TSN Configurations:
 
         # Reshaping for 3 segments to forward pass model individually 
         pose = pose.view((-1, pose_len) + pose.size()[-2:])
-        # Reshaping for Linear Layer
-        pose = pose.view((pose.size(0),-1))
+        # Getting the same number of channels as rgb module
         pose_out = self.pose_layer(pose)
 
-        base_pose_out = torch.cat((base_out, pose_out), 1)
-        base_pose_out = self.rgb_pose_combine_layer(base_pose_out)
+        # base_pose_out = torch.cat((base_out, pose_out), 1)
+        # base_pose_out = self.rgb_pose_combine_layer(base_pose_out)
+
+        base_pose_out = base_out + pose_out
+        print('Size after summing', base_pose_out.size())
+        base_pose_out = self.global_pool(base_pose_out)
+        print('Size after global pooling', base_pose_out.size())
+
+        base_pose_out = base_pose_out.view(base_pose_out.size(0), -1)
+        print('after reshaping for linear layer', base_pose_out.size())
 
         if self.dropout > 0:
             base_pose_out = self.new_fc(base_pose_out)

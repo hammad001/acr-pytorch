@@ -71,7 +71,7 @@ class BNInception(nn.Module):
                     for x in op[-1]:
                         print(x,data_dict[x].size())
                     raise
-        return data_dict[self._op_list[-1][2]]
+        return data_dict[self._op_list[-3][2]]
 
 
 class InceptionV3(BNInception):
