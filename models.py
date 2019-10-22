@@ -90,7 +90,7 @@ TSN Configurations:
                               )
 
         self.rgb_pose_combine_layer = nn.Sequential(
-                                        nn.Conv2d(2 * feature_dim, feature_dim,3,stride=1,padding=1),
+                                        nn.Conv2d(feature_dim, feature_dim,3,stride=1,padding=1),
                                         nn.ReLU(inplace=True),
                                         )
 
@@ -173,6 +173,8 @@ TSN Configurations:
                         # shutdown update in frozen mode
                         m.weight.requires_grad = False
                         m.bias.requires_grad = False
+
+        self.maskrcnn_model.eval()
 
     def partialBN(self, enable):
         self._enable_pbn = enable
@@ -267,7 +269,7 @@ TSN Configurations:
         # Getting the same number of channels as rgb module
         pose_out = self.pose_layer(pose_out)
 
-        base_pose_out = torch.cat((base_out, pose_out), 1)
+        base_pose_out = base_out + pose_out
 
         base_pose_out = F.relu(base_pose_out)
         base_pose_out = self.rgb_pose_combine_layer(base_pose_out)

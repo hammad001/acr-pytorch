@@ -111,7 +111,7 @@ def main():
 
         # collate_fn=collate_rgb_pose,
         batch_size=args.batch_size, shuffle=True,
-        num_workers=0, pin_memory=True)
+        num_workers=args.workers, pin_memory=True)
 
     val_loader = torch.utils.data.DataLoader(
         TSNDataSet("", args.val_list, args.maskrcnn_config,
@@ -139,7 +139,7 @@ def main():
 
         # collate_fn=collate_rgb_pose,
         batch_size=args.batch_size, shuffle=False,
-        num_workers=0, pin_memory=True)
+        num_workers=args.workers, pin_memory=True)
 
     # define loss function (criterion) and optimizer
     if args.loss_type == 'nll':
@@ -169,7 +169,7 @@ def main():
         # evaluate on validation set
         if (epoch + 1) % args.eval_freq == 0 or epoch == args.epochs - 1:
             prec1 = validate(val_loader, model, criterion, (epoch + 1) * len(train_loader))
-
+    
             # remember best prec@1 and save checkpoint
             is_best = prec1 > best_prec1
             best_prec1 = max(prec1, best_prec1)
@@ -194,7 +194,7 @@ def train(train_loader, model, criterion, optimizer, epoch):
         model.module.partialBN(True)
 
     # switch to train mode
-    # model.train()
+    model.train()
 
     end = time.time()
     for i, (input, pose, target) in enumerate(train_loader):
@@ -267,12 +267,10 @@ def validate(val_loader, model, criterion, iter, logger=None):
             input_var = input.cuda()
             target_var = target
 
-            device = torch.device(cfg.MODEL.DEVICE)
-            image_list = to_image_list(pose, cfg.DATALOADER.SIZE_DIVISIBILITY)
-            image_list = image_list.to(device)
+            pose = torch.autograd.Variable(pose.cuda())
 
             # compute output
-            output = model(input_var, image_list)
+            output = model(input_var, pose)
             loss = criterion(output, target_var)
     
             # measure accuracy and record loss
