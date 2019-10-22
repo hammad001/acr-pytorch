@@ -92,6 +92,40 @@ class GroupScale(object):
         return [self.worker(img) for img in img_group]
 
 
+class GroupToBGR(object):
+    def __init__(self, cfg):
+        if cfg.INPUT.TO_BGR255:
+            self.worker = torchvision.transforms.Lambda(lambda x: x * 255)
+        else:
+            self.worker = torchvision.transforms.Lambda(lambda x: x[[2, 1, 0]])
+
+    def __call__(self, img_group):
+        return [self.worker(img) for img in img_group]
+
+class GroupPoseNormalize(object):
+    def __init__(self, cfg):
+        self.worker = torchvision.transforms.Normalize(
+                           mean=cfg.INPUT.PIXEL_MEAN, std=cfg.INPUT.PIXEL_STD
+                          )
+    
+    def __call__(self, img_group):
+        return [self.worker(img) for img in img_group]
+
+class GroupToTensor(object):
+    def __init__(self):
+        self.worker = torchvision.transforms.ToTensor()
+    
+    def __call__(self, img_group):
+        return [self.worker(img) for img in img_group]
+
+class StackPoseImgs(object):
+    def __init__(self):
+        pass
+    
+    def __call__(self, img_group):
+        return torch.cat(img_group, dim=0)
+
+
 class GroupOverSample(object):
     def __init__(self, crop_size, scale_size=None):
         self.crop_size = crop_size if not isinstance(crop_size, int) else (crop_size, crop_size)
@@ -305,6 +339,18 @@ class IdentityTransform(object):
     def __call__(self, data):
         return data
 
+def collate_rgb_pose(batch):
+    img_list=[]
+    label_list=[]
+    pose_img_comp=[]
+    for (img, pose_img_list, label) in batch:
+        img_list.append(img)
+        # for pose_img in pose_img_list:
+        #    pose_img_comp.append(pose_img)
+        pose_img_comp.append(pose_img_list)
+        label_list.append(label)
+
+    return torch.stack(img_list, dim=0), pose_img_comp, torch.tensor(label_list)
 
 if __name__ == "__main__":
     trans = torchvision.transforms.Compose([
@@ -318,13 +364,14 @@ if __name__ == "__main__":
         )]
     )
 
-    im = Image.open('../tensorflow-model-zoo.torch/lena_299.png')
+    # im = Image.open('../tensorflow-model-zoo.torch/lena_299.png')
+    im = Image.open('ucf_test_img.jpg')
 
     color_group = [im] * 3
     rst = trans(color_group)
 
     gray_group = [im.convert('L')] * 9
-    gray_rst = trans(gray_group)
+    # gray_rst = trans(gray_group)
 
     trans2 = torchvision.transforms.Compose([
         GroupRandomSizedCrop(256),
@@ -334,4 +381,20 @@ if __name__ == "__main__":
             mean=[.485, .456, .406],
             std=[.229, .224, .225])
     ])
-    print(trans2(color_group))
+    
+    from maskrcnn_benchmark.config import cfg
+
+    trans_pose = torchvision.transforms.Compose([
+                       GroupScale(int(256)),
+                       GroupCenterCrop(224),
+                       GroupToTensor(),
+                       GroupToBGR(cfg),
+                       GroupPoseNormalize(cfg),
+                       StackPoseImgs(),
+                   ])
+
+    conv = trans_pose(color_group)
+    print(len(conv))
+    print(conv.size())
+
+    # print(trans2(color_group))

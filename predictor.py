@@ -3,6 +3,7 @@ import cv2
 import torch
 from torchvision import transforms as T
 
+from transforms import *
 from maskrcnn_benchmark.modeling.detector import build_detection_model
 from maskrcnn_benchmark.utils.checkpoint import DetectronCheckpointer
 from maskrcnn_benchmark.structures.image_list import to_image_list
@@ -147,7 +148,7 @@ class COCODemo(object):
         normalize_transform = T.Normalize(
             mean=cfg.INPUT.PIXEL_MEAN, std=cfg.INPUT.PIXEL_STD
         )
-
+ 
         transform = T.Compose(
             [
                 T.ToPILImage(),
@@ -202,7 +203,8 @@ class COCODemo(object):
         image_list = image_list.to(self.device)
         # compute predictions
         with torch.no_grad():
-            predictions = self.model(image_list)
+            features, predictions = self.model(image_list)
+        print("In predictor: length of proposals", len(predictions[0]))
         predictions = [o.to(self.cpu_device) for o in predictions]
 
         # always single image is passed at a time

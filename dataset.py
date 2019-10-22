@@ -209,15 +209,16 @@ class TSNDataSet(data.Dataset):
             p = int(seg_ind)
             for i in range(self.new_length):
                 seg_imgs = self._load_image(record.path, p)
-                pose_path = record.path.replace('ucf_extract', 'ucf_pose')
-                seg_pose = self._load_pose(pose_path, p)
+                # pose_path = record.path.replace('ucf_extract', 'ucf_pose')
+                # seg_pose = self._load_pose(pose_path, p)
                 images.extend(seg_imgs)
-                poses.extend(seg_pose)
+                # poses.extend(seg_pose)
                 if p < record.num_frames:
                     p += 1
 
         process_data = self.transform(images)
-        process_pose = self.transform_pose(poses)
+        process_pose = self.transform_pose(images)
+        # print('in dataset: process_pose ex size', process_pose[0].size())
         return process_data, process_pose, record.label
 
     def __len__(self):

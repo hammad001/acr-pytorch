@@ -14,8 +14,23 @@ from models import TSN
 from transforms import *
 from opts import parser
 
-best_prec1 = 0
+from maskrcnn_benchmark.structures.image_list import to_image_list
+from maskrcnn_benchmark.config import cfg
+from predictor import COCODemo
 
+# set up demo for keypoints
+config_file = "/workspace/maskrcnn-benchmark/configs/caffe2/e2e_keypoint_rcnn_R_50_FPN_1x_caffe2.yaml"
+cfg.merge_from_file(config_file)
+cfg.merge_from_list(["MODEL.DEVICE", "cuda"])
+cfg.merge_from_list(["MODEL.MASK_ON", False])
+
+coco_demo = COCODemo(
+    cfg,
+    min_image_size=800,
+    confidence_threshold=0.7,
+)
+
+best_prec1 = 0
 
 def main():
     global args, best_prec1
@@ -35,7 +50,7 @@ def main():
 
     model = TSN(num_class, args.num_segments, args.modality,
                 base_model=args.arch,
-                consensus_type=args.consensus_type, dropout=args.dropout, partial_bn=not args.no_partialbn)
+                consensus_type=args.consensus_type, dropout=args.dropout, partial_bn=not args.no_partialbn, cfg = cfg)
 
     crop_size = model.crop_size
     scale_size = model.scale_size
@@ -87,12 +102,16 @@ def main():
                    transform_pose=torchvision.transforms.Compose([
                        GroupScale(int(scale_size)),
                        GroupCenterCrop(crop_size),
-                       StackPose(),
-                       ToTorchFormatTensorPose(),
+                       GroupToTensor(),
+                       GroupToBGR(cfg),
+                       GroupPoseNormalize(cfg),
+                       StackPoseImgs(),
                    ])
                    ),
+
+        # collate_fn=collate_rgb_pose,
         batch_size=args.batch_size, shuffle=True,
-        num_workers=args.workers, pin_memory=True)
+        num_workers=0, pin_memory=True)
 
     val_loader = torch.utils.data.DataLoader(
         TSNDataSet("", args.val_list, args.maskrcnn_config,
@@ -111,12 +130,16 @@ def main():
                    transform_pose=torchvision.transforms.Compose([
                        GroupScale(int(scale_size)),
                        GroupCenterCrop(crop_size),
-                       StackPose(),
-                       ToTorchFormatTensorPose(),
+                       GroupToTensor(),
+                       GroupToBGR(cfg),
+                       GroupPoseNormalize(cfg),
+                       StackPoseImgs(),
                    ])
                    ),
+
+        # collate_fn=collate_rgb_pose,
         batch_size=args.batch_size, shuffle=False,
-        num_workers=args.workers, pin_memory=True)
+        num_workers=0, pin_memory=True)
 
     # define loss function (criterion) and optimizer
     if args.loss_type == 'nll':
@@ -171,16 +194,22 @@ def train(train_loader, model, criterion, optimizer, epoch):
         model.module.partialBN(True)
 
     # switch to train mode
-    model.train()
+    # model.train()
 
     end = time.time()
     for i, (input, pose, target) in enumerate(train_loader):
+        # print('length of pose in loader', len(pose))
         # measure data loading time
         data_time.update(time.time() - end)
 
         target = target.cuda(async=True)
-        input_var = torch.autograd.Variable(input)
-        pose = torch.autograd.Variable(pose)
+        input_var = torch.autograd.Variable(input.cuda())
+        pose = torch.autograd.Variable(pose.cuda())
+
+        # device = torch.device('cuda')
+        # image_list = to_image_list(pose, cfg.DATALOADER.SIZE_DIVISIBILITY)
+        # image_list = image_list.to(device)
+
         target_var = torch.autograd.Variable(target)
 
         # compute output
@@ -235,12 +264,15 @@ def validate(val_loader, model, criterion, iter, logger=None):
     with torch.no_grad():
         for i, (input, pose, target) in enumerate(val_loader):
             target = target.cuda(async=True)
-            input_var = input
-            pose_var = pose
+            input_var = input.cuda()
             target_var = target
-    
+
+            device = torch.device(cfg.MODEL.DEVICE)
+            image_list = to_image_list(pose, cfg.DATALOADER.SIZE_DIVISIBILITY)
+            image_list = image_list.to(device)
+
             # compute output
-            output = model(input_var, pose_var)
+            output = model(input_var, image_list)
             loss = criterion(output, target_var)
     
             # measure accuracy and record loss

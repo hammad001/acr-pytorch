@@ -5,12 +5,16 @@ from transforms import *
 from torch.nn.init import normal_, constant_
 import torch.nn.functional as F
 
+from maskrcnn_benchmark.modeling.detector import build_detection_model
+from maskrcnn_benchmark.utils.checkpoint import DetectronCheckpointer
+from maskrcnn_benchmark.structures.image_list import to_image_list
+
 class TSN(nn.Module):
     def __init__(self, num_class, num_segments, modality,
                  base_model='resnet101', new_length=None,
                  consensus_type='avg', before_softmax=True,
                  dropout=0.8,
-                 crop_num=1, partial_bn=True):
+                 crop_num=1, partial_bn=True, cfg=None):
         super(TSN, self).__init__()
         self.modality = modality
         self.num_segments = num_segments
@@ -59,21 +63,38 @@ TSN Configurations:
         if partial_bn:
             self.partialBN(True)
 
+        self.maskrcnn_model = build_detection_model(cfg)
+        self.maskrcnn_model.eval()
+        
+        save_dir = cfg.OUTPUT_DIR
+        checkpointer = DetectronCheckpointer(cfg, self.maskrcnn_model, save_dir=save_dir)
+        _ = checkpointer.load(cfg.MODEL.WEIGHT)
+        self.cfg = cfg
+
         self.pose_layer = nn.Sequential(
-                              nn.Conv2d(1,64,7,stride=4,padding=3),
+                              nn.Conv2d(17,64,3,stride=1,padding=1),
                               nn.BatchNorm2d(64),
                               nn.ReLU(inplace=True),
-                              nn.MaxPool2d(3,stride=4,padding=1),
-                              nn.Conv2d(64,256,1),
+                              nn.MaxPool2d(3,stride=2,padding=1),
+                              nn.Conv2d(64,256,3, stride=1, padding=1),
+                              nn.ReLU(inplace=True),
+                              nn.Conv2d(256,256,3, stride=1, padding=1),
+                              nn.BatchNorm2d(256),
+                              nn.ReLU(inplace=True),
+                              nn.MaxPool2d(3,stride=2,padding=1),
                               nn.Conv2d(256,512,3,stride=1,padding=1),
                               nn.BatchNorm2d(512),
                               nn.ReLU(inplace=True),
                               nn.MaxPool2d(3,stride=2,padding=1),
-                              nn.Conv2d(512,1024,1),
+                              nn.Conv2d(512,1024,3,stride=1,padding=1),
                               )
 
-        # self.rgb_pose_combine_layer = nn.Sequential(
-        #                                 nn.Linear(2 * feature_dim, feature_dim))
+        self.rgb_pose_combine_layer = nn.Sequential(
+                                        nn.Conv2d(2 * feature_dim, feature_dim,3,stride=1,padding=1),
+                                        nn.ReLU(inplace=True),
+                                        )
+
+        self.rgb_pose_linear_layer = nn.Linear(7 * 7 * feature_dim, feature_dim)
 
         self.global_pool = nn.AvgPool2d(7)
 
@@ -190,6 +211,8 @@ TSN Configurations:
                 # later BN's are frozen
                 if not self._enable_pbn or bn_cnt == 1:
                     bn.extend(list(m.parameters()))
+            elif 'maskrcnn' in str(type(m)):
+                continue
             elif len(m._modules) == 0:
                 if len(list(m.parameters())) > 0:
                     raise ValueError("New atomic module type: {}. Need to give it a learning policy".format(type(m)))
@@ -209,30 +232,47 @@ TSN Configurations:
 
     def forward(self, input, pose):
         sample_len = (3 if self.modality == "RGB" else 2) * self.new_length
-        pose_len = 1
 
         if self.modality == 'RGBDiff':
             sample_len = 3 * self.new_length
             input = self._get_diff(input)
 
         base_out = self.base_model(input.view((-1, sample_len) + input.size()[-2:]))
-        base_out = F.relu(base_out)
 
+        pose = pose.view((-1, sample_len) + pose.size()[-2:])
+        pose_list = [p for p in pose]
+        pose_list = to_image_list(pose_list, self.cfg.DATALOADER.SIZE_DIVISIBILITY)
         # Reshaping for 3 segments to forward pass model individually 
-        pose = pose.view((-1, pose_len) + pose.size()[-2:])
+        with torch.no_grad():
+            predictions, proposals = self.maskrcnn_model(pose_list,True)
+
+        scores = [proposal.get_field("scores") for proposal in proposals]
+        scores = [score == torch.max(score) for score in scores]
+        # Taking  care of no object prediction in image
+        scores_mask = [1 if len(score) > 0 else 0 for score in scores]
+        scores = torch.cat(scores, dim=0)
+        if len(scores>0):
+            heatmap = predictions[scores,:,:,:]
+        
+        heatmap_count = 0
+        pose_out = []
+        for mask in scores_mask:
+            if mask > 0:
+                pose_out.append(heatmap[heatmap_count])
+                heatmap_count += 1
+            else:
+                pose_out.append(torch.randn(17,56,56).cuda())
+
+        pose_out = torch.stack(pose_out, dim=0)
         # Getting the same number of channels as rgb module
-        pose_out = self.pose_layer(pose)
+        pose_out = self.pose_layer(pose_out)
 
-        # base_pose_out = torch.cat((base_out, pose_out), 1)
-        # base_pose_out = self.rgb_pose_combine_layer(base_pose_out)
+        base_pose_out = torch.cat((base_out, pose_out), 1)
 
-        base_pose_out = base_out + pose_out
-        print('Size after summing', base_pose_out.size())
-        base_pose_out = self.global_pool(base_pose_out)
-        print('Size after global pooling', base_pose_out.size())
-
+        base_pose_out = F.relu(base_pose_out)
+        base_pose_out = self.rgb_pose_combine_layer(base_pose_out)
         base_pose_out = base_pose_out.view(base_pose_out.size(0), -1)
-        print('after reshaping for linear layer', base_pose_out.size())
+        base_pose_out = self.rgb_pose_linear_layer(base_pose_out)
 
         if self.dropout > 0:
             base_pose_out = self.new_fc(base_pose_out)
