@@ -290,12 +290,12 @@ TSN Configurations:
         masks = torch.tensor(masks, dtype=torch.uint8).cuda()
         if len(scores_tensor>0):
             heatmap = predictions[scores_tensor,:,:,:]
- 
-        # Getting the same number of channels as rgb module
-        pose_out = self.pose_layer(heatmap)
+            # Getting the same number of channels as rgb module
+            pose_out = self.pose_layer(heatmap)
 
         pose_out_final = base_out.clone()
-        pose_out_final[masks, ...] = pose_out
+        if len(scores_tensor>0):
+            pose_out_final[masks, ...] = pose_out
 
         base_pose_out = torch.cat((base_out, pose_out_final), 1)
 
