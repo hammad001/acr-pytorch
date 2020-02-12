@@ -90,7 +90,7 @@ TSN Configurations:
                               )
 
         self.rgb_pose_combine_layer = nn.Sequential(
-                                        nn.Conv2d(feature_dim, feature_dim,3,stride=1,padding=1),
+                                        nn.Conv2d(2 * feature_dim, feature_dim,3,stride=1,padding=1),
                                         nn.ReLU(inplace=True),
                                         )
 
@@ -248,28 +248,56 @@ TSN Configurations:
         with torch.no_grad():
             predictions, proposals = self.maskrcnn_model(pose_list,True)
 
-        scores = [proposal.get_field("scores") for proposal in proposals]
-        scores = [score == torch.max(score) for score in scores]
-        # Taking  care of no object prediction in image
-        scores_mask = [1 if len(score) > 0 else 0 for score in scores]
-        scores = torch.cat(scores, dim=0)
-        if len(scores>0):
-            heatmap = predictions[scores,:,:,:]
-        
-        heatmap_count = 0
-        pose_out = []
-        for mask in scores_mask:
-            if mask > 0:
-                pose_out.append(heatmap[heatmap_count])
-                heatmap_count += 1
+#        scores_ = [proposal.get_field("scores") for proposal in proposals]
+#        scores = [score == torch.max(score) for score in scores_]
+#        # Taking  care of no object prediction in image
+#        scores_mask = [1 if len(score) > 0 else 0 for score in scores]
+#        scores_tensor = torch.cat(scores, dim=0)
+#        if len(scores_tensor>0):
+#            heatmap = predictions[scores_tensor,:,:,:]
+#        
+#        heatmap_count = 0
+#        pose_out = []
+#        for mask in scores_mask:
+#            if mask > 0:
+#                pose_out.append(heatmap[heatmap_count])
+#                heatmap_count += 1
+#            else:
+#                pose_out.append(torch.randn(17,56,56).cuda())
+#
+#        for score in scores:
+#            if len(score) <= 0:
+#                print(score)
+#                import pdb
+#                pdb.set_trace()
+#
+#        pose_out = torch.stack(pose_out, dim=0)
+
+        scores = []
+        masks = []
+        for proposal in proposals:
+            img_scores_ = proposal.get_field("scores")
+            img_scores = (img_scores_ == torch.max(img_scores_))
+            if len(img_scores) > 0:
+                img_mask = 1
             else:
-                pose_out.append(torch.randn(17,56,56).cuda())
+                img_mask = 0
 
-        pose_out = torch.stack(pose_out, dim=0)
+            masks.append(img_mask)
+            scores.append(img_scores)
+
+        scores_tensor = torch.cat(scores, dim=0)
+        masks = torch.tensor(masks, dtype=torch.uint8).cuda()
+        if len(scores_tensor>0):
+            heatmap = predictions[scores_tensor,:,:,:]
+ 
         # Getting the same number of channels as rgb module
-        pose_out = self.pose_layer(pose_out)
+        pose_out = self.pose_layer(heatmap)
 
-        base_pose_out = base_out + pose_out
+        pose_out_final = base_out.clone()
+        pose_out_final[masks, ...] = pose_out
+
+        base_pose_out = torch.cat((base_out, pose_out_final), 1)
 
         base_pose_out = F.relu(base_pose_out)
         base_pose_out = self.rgb_pose_combine_layer(base_pose_out)
