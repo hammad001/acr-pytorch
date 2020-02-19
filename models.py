@@ -241,12 +241,12 @@ TSN Configurations:
 
         base_out = self.base_model(input.view((-1, sample_len) + input.size()[-2:]))
 
-        pose = pose.view((-1, sample_len) + pose.size()[-2:])
-        pose_list = [p for p in pose]
-        pose_list = to_image_list(pose_list, self.cfg.DATALOADER.SIZE_DIVISIBILITY)
-        # Reshaping for 3 segments to forward pass model individually 
-        with torch.no_grad():
-            predictions, proposals = self.maskrcnn_model(pose_list,True)
+        # pose = pose.view((-1, sample_len) + pose.size()[-2:])
+        # pose_list = [p for p in pose]
+        # pose_list = to_image_list(pose_list, self.cfg.DATALOADER.SIZE_DIVISIBILITY)
+        # # Reshaping for 3 segments to forward pass model individually 
+        # with torch.no_grad():
+        #     predictions, proposals = self.maskrcnn_model(pose_list,True)
 
 #        scores_ = [proposal.get_field("scores") for proposal in proposals]
 #        scores = [score == torch.max(score) for score in scores_]
@@ -273,35 +273,35 @@ TSN Configurations:
 #
 #        pose_out = torch.stack(pose_out, dim=0)
 
-        scores = []
-        masks = []
-        for proposal in proposals:
-            img_scores_ = proposal.get_field("scores")
-            img_scores = (img_scores_ == torch.max(img_scores_))
-            if len(img_scores) > 0:
-                img_mask = 1
-            else:
-                img_mask = 0
+        # scores = []
+        # masks = []
+        # for proposal in proposals:
+        #     img_scores_ = proposal.get_field("scores")
+        #     img_scores = (img_scores_ == torch.max(img_scores_))
+        #     if len(img_scores) > 0:
+        #         img_mask = 1
+        #     else:
+        #         img_mask = 0
 
-            masks.append(img_mask)
-            scores.append(img_scores)
+        #     masks.append(img_mask)
+        #     scores.append(img_scores)
 
-        scores_tensor = torch.cat(scores, dim=0)
-        masks = torch.tensor(masks, dtype=torch.uint8).cuda()
-        if len(scores_tensor>0):
-            heatmap = predictions[scores_tensor,:,:,:]
-            # Getting the same number of channels as rgb module
-            pose_out = self.pose_layer(heatmap)
+        # scores_tensor = torch.cat(scores, dim=0)
+        # masks = torch.tensor(masks, dtype=torch.uint8).cuda()
+        # if len(scores_tensor>0):
+        #     heatmap = predictions[scores_tensor,:,:,:]
+        #     # Getting the same number of channels as rgb module
+        #     pose_out = self.pose_layer(heatmap)
 
-        pose_out_final = base_out.clone()
-        if len(scores_tensor>0):
-            pose_out_final[masks, ...] = pose_out
+        # pose_out_final = base_out.clone()
+        # if len(scores_tensor>0):
+        #     pose_out_final[masks, ...] = pose_out
 
-        base_pose_out = torch.cat((base_out, pose_out_final), 1)
+        # base_pose_out = torch.cat((base_out, pose_out_final), 1)
 
-        base_pose_out = F.relu(base_pose_out)
-        base_pose_out = self.rgb_pose_combine_layer(base_pose_out)
-        base_pose_out = base_pose_out.view(base_pose_out.size(0), -1)
+        # base_pose_out = F.relu(base_pose_out)
+        # base_pose_out = self.rgb_pose_combine_layer(base_pose_out)
+        base_pose_out = base_out.view(base_out.size(0), -1)
         base_pose_out = self.rgb_pose_linear_layer(base_pose_out)
 
         if self.dropout > 0:
