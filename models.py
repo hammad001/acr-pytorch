@@ -71,24 +71,28 @@ TSN Configurations:
         _ = checkpointer.load(cfg.MODEL.WEIGHT)
         self.cfg = cfg
 
+        # self.pose_layer = nn.Sequential(
+        #                       nn.Conv2d(17,64,3,stride=1,padding=1),
+        #                       nn.BatchNorm2d(64),
+        #                       nn.ReLU(inplace=True),
+        #                       nn.MaxPool2d(3,stride=2,padding=1),
+        #                       nn.Conv2d(64,256,3, stride=1, padding=1),
+        #                       nn.ReLU(inplace=True),
+        #                       nn.Conv2d(256,256,3, stride=1, padding=1),
+        #                       nn.BatchNorm2d(256),
+        #                       nn.ReLU(inplace=True),
+        #                       nn.MaxPool2d(3,stride=2,padding=1),
+        #                       nn.Conv2d(256,512,3,stride=1,padding=1),
+        #                       nn.BatchNorm2d(512),
+        #                       nn.ReLU(inplace=True),
+        #                       nn.MaxPool2d(3,stride=2,padding=1),
+        #                       nn.Conv2d(512,1024,3,stride=1,padding=1),
+        #                       )
         self.pose_layer = nn.Sequential(
-                              nn.Conv2d(17,64,3,stride=1,padding=1),
-                              nn.BatchNorm2d(64),
-                              nn.ReLU(inplace=True),
-                              nn.MaxPool2d(3,stride=2,padding=1),
-                              nn.Conv2d(64,256,3, stride=1, padding=1),
-                              nn.ReLU(inplace=True),
-                              nn.Conv2d(256,256,3, stride=1, padding=1),
-                              nn.BatchNorm2d(256),
-                              nn.ReLU(inplace=True),
-                              nn.MaxPool2d(3,stride=2,padding=1),
-                              nn.Conv2d(256,512,3,stride=1,padding=1),
-                              nn.BatchNorm2d(512),
-                              nn.ReLU(inplace=True),
-                              nn.MaxPool2d(3,stride=2,padding=1),
-                              nn.Conv2d(512,1024,3,stride=1,padding=1),
-                              )
-
+                nn.MaxPool2d(3, stride=4, padding=1),
+                )
+        self.pose_linear = nn.Linear(14*14*17, 7*7*feature_dim)
+        
         self.rgb_pose_combine_layer = nn.Sequential(
                                         nn.Conv2d(2 * feature_dim, feature_dim,3,stride=1,padding=1),
                                         nn.ReLU(inplace=True),
@@ -248,31 +252,6 @@ TSN Configurations:
         with torch.no_grad():
             predictions, proposals = self.maskrcnn_model(pose_list,True)
 
-#        scores_ = [proposal.get_field("scores") for proposal in proposals]
-#        scores = [score == torch.max(score) for score in scores_]
-#        # Taking  care of no object prediction in image
-#        scores_mask = [1 if len(score) > 0 else 0 for score in scores]
-#        scores_tensor = torch.cat(scores, dim=0)
-#        if len(scores_tensor>0):
-#            heatmap = predictions[scores_tensor,:,:,:]
-#        
-#        heatmap_count = 0
-#        pose_out = []
-#        for mask in scores_mask:
-#            if mask > 0:
-#                pose_out.append(heatmap[heatmap_count])
-#                heatmap_count += 1
-#            else:
-#                pose_out.append(torch.randn(17,56,56).cuda())
-#
-#        for score in scores:
-#            if len(score) <= 0:
-#                print(score)
-#                import pdb
-#                pdb.set_trace()
-#
-#        pose_out = torch.stack(pose_out, dim=0)
-
         scores = []
         masks = []
         for proposal in proposals:
@@ -292,16 +271,20 @@ TSN Configurations:
             heatmap = predictions[scores_tensor,:,:,:]
             # Getting the same number of channels as rgb module
             pose_out = self.pose_layer(heatmap)
+            pose_out = pose_out.view(pose_out.shape[0], -1)
+            pose_out = self.pose_linear(pose_out)
 
+        base_out = base_out.view(base_out.shape[0], -1)
         pose_out_final = base_out.clone()
         if len(scores_tensor>0):
             pose_out_final[masks, ...] = pose_out
 
-        base_pose_out = torch.cat((base_out, pose_out_final), 1)
+        # base_pose_out = torch.cat((base_out, pose_out_final), 1)
+        base_pose_out = base_out + pose_out_final
 
-        base_pose_out = F.relu(base_pose_out)
-        base_pose_out = self.rgb_pose_combine_layer(base_pose_out)
-        base_pose_out = base_pose_out.view(base_pose_out.size(0), -1)
+        # base_pose_out = F.relu(base_pose_out)
+        # base_pose_out = self.rgb_pose_combine_layer(base_pose_out)
+        # base_pose_out = base_pose_out.view(base_pose_out.size(0), -1)
         base_pose_out = self.rgb_pose_linear_layer(base_pose_out)
 
         if self.dropout > 0:
