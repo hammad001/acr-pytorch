@@ -301,8 +301,10 @@ TSN Configurations:
 
         # base_pose_out = F.relu(base_pose_out)
         # base_pose_out = self.rgb_pose_combine_layer(base_pose_out)
-        base_pose_out = base_out.view(base_out.size(0), -1)
-        base_pose_out = self.rgb_pose_linear_layer(base_pose_out)
+        # base_pose_out = base_out.view(base_out.size(0), -1)
+        # base_pose_out = self.rgb_pose_linear_layer(base_pose_out)
+        base_pose_out = self.global_pool(base_out)
+        base_pose_out = base_pose_out.view(base_pose_out.size(0), -1)
 
         if self.dropout > 0:
             base_pose_out = self.new_fc(base_pose_out)
