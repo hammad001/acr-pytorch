@@ -71,36 +71,33 @@ TSN Configurations:
         _ = checkpointer.load(cfg.MODEL.WEIGHT)
         self.cfg = cfg
 
-        # self.pose_layer = nn.Sequential(
-        #                       nn.Conv2d(17,64,3,stride=1,padding=1),
-        #                       nn.BatchNorm2d(64),
-        #                       nn.ReLU(inplace=True),
-        #                       nn.MaxPool2d(3,stride=2,padding=1),
-        #                       nn.Conv2d(64,256,3, stride=1, padding=1),
-        #                       nn.ReLU(inplace=True),
-        #                       nn.Conv2d(256,256,3, stride=1, padding=1),
-        #                       nn.BatchNorm2d(256),
-        #                       nn.ReLU(inplace=True),
-        #                       nn.MaxPool2d(3,stride=2,padding=1),
-        #                       nn.Conv2d(256,512,3,stride=1,padding=1),
-        #                       nn.BatchNorm2d(512),
-        #                       nn.ReLU(inplace=True),
-        #                       nn.MaxPool2d(3,stride=2,padding=1),
-        #                       nn.Conv2d(512,1024,3,stride=1,padding=1),
-        #                       )
         self.pose_layer = nn.Sequential(
-                nn.MaxPool2d(3, stride=4, padding=1),
-                )
-        self.pose_linear = nn.Linear(14*14*17, 7*7*feature_dim)
-        
+                              nn.Conv2d(17,64,3,stride=1,padding=1),
+                              nn.BatchNorm2d(64),
+                              nn.ReLU(inplace=True),
+                              nn.MaxPool2d(3,stride=2,padding=1),
+                              nn.Conv2d(64,256,3, stride=1, padding=1),
+                              nn.ReLU(inplace=True),
+                              nn.Conv2d(256,256,3, stride=1, padding=1),
+                              nn.BatchNorm2d(256),
+                              nn.ReLU(inplace=True),
+                              nn.MaxPool2d(3,stride=2,padding=1),
+                              nn.Conv2d(256,512,3,stride=1,padding=1),
+                              nn.BatchNorm2d(512),
+                              nn.ReLU(inplace=True),
+                              nn.MaxPool2d(3,stride=2,padding=1),
+                              nn.Conv2d(512,1024,3,stride=1,padding=1),
+                              )
+
         self.rgb_pose_combine_layer = nn.Sequential(
-                                        nn.Conv2d(2 * feature_dim, feature_dim,3,stride=1,padding=1),
+                                        nn.Conv2d(feature_dim, feature_dim,3,stride=1,padding=1),
                                         nn.ReLU(inplace=True),
                                         )
 
         self.rgb_pose_linear_layer = nn.Linear(7 * 7 * feature_dim, feature_dim)
 
         self.global_pool = nn.AvgPool2d(7)
+        self.global_dropout = nn.Dropout(p=0.8)
 
 
     def _prepare_tsn(self, num_class):
@@ -271,10 +268,7 @@ TSN Configurations:
             heatmap = predictions[scores_tensor,:,:,:]
             # Getting the same number of channels as rgb module
             pose_out = self.pose_layer(heatmap)
-            pose_out = pose_out.view(pose_out.shape[0], -1)
-            pose_out = self.pose_linear(pose_out)
 
-        base_out = base_out.view(base_out.shape[0], -1)
         pose_out_final = base_out.clone()
         if len(scores_tensor>0):
             pose_out_final[masks, ...] = pose_out
@@ -282,10 +276,11 @@ TSN Configurations:
         # base_pose_out = torch.cat((base_out, pose_out_final), 1)
         base_pose_out = base_out + pose_out_final
 
-        # base_pose_out = F.relu(base_pose_out)
-        # base_pose_out = self.rgb_pose_combine_layer(base_pose_out)
-        # base_pose_out = base_pose_out.view(base_pose_out.size(0), -1)
-        base_pose_out = self.rgb_pose_linear_layer(base_pose_out)
+        base_pose_out = self.rgb_pose_combine_layer(base_pose_out)
+        base_pose_out = self.global_pool(base_pose_out)
+        base_pose_out = self.global_dropout(base_pose_out)
+        base_pose_out = base_pose_out.view(base_pose_out.size(0), -1)
+        # base_pose_out = self.rgb_pose_linear_layer(base_pose_out)
 
         if self.dropout > 0:
             base_pose_out = self.new_fc(base_pose_out)
