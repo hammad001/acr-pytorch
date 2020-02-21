@@ -97,6 +97,7 @@ TSN Configurations:
         self.rgb_pose_linear_layer = nn.Linear(7 * 7 * feature_dim, feature_dim)
 
         self.global_pool = nn.AvgPool2d(7)
+        self.bn_inception_last = nn.Dropout(p=0.8)
 
 
     def _prepare_tsn(self, num_class):
@@ -304,6 +305,7 @@ TSN Configurations:
         # base_pose_out = base_out.view(base_out.size(0), -1)
         # base_pose_out = self.rgb_pose_linear_layer(base_pose_out)
         base_pose_out = self.global_pool(base_out)
+        base_pose_out = self.bn_inception_last(base_pose_out)
         base_pose_out = base_pose_out.view(base_pose_out.size(0), -1)
 
         if self.dropout > 0:
